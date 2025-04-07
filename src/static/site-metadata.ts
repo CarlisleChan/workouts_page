@@ -11,7 +11,7 @@ interface ISiteMetadataResult {
 }
 
 const data: ISiteMetadataResult = {
-  siteTitle: 'Workouts Map',
+  siteTitle: 'Tracks Map',
   siteUrl: '',
   logo: 'https://miiluu.oss-cn-shanghai.aliyuncs.com/common/running_page_avatar.jpg',
   description: 'Personal site and blog',
