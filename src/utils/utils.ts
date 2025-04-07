@@ -51,8 +51,9 @@ const titleForShow = (run: Activity): string => {
   if (run.name) {
     name = run.name;
   }
-  return `${name} ${date} ${distance} KM ${!run.summary_polyline ? '(No map data for this workout)' : ''
-    }`;
+  return `${name} ${date} ${distance} KM ${
+    !run.summary_polyline ? '(No map data for this workout)' : ''
+  }`;
 };
 
 const formatPace = (d: number): string => {
@@ -115,7 +116,7 @@ const extractDistricts = (str: string): string[] => {
   }
 
   return locations;
-}
+};
 
 const extractCoordinate = (str: string): [number, number] | null => {
   const pattern = /'latitude': ([-]?\d+\.\d+).*?'longitude': ([-]?\d+\.\d+)/;
@@ -232,7 +233,7 @@ const geoJsonForRuns = (runs: Activity[]): FeatureCollection<LineString> => ({
     return {
       type: 'Feature',
       properties: {
-        'color': colorFromType(run.type),
+        color: colorFromType(run.type),
       },
       geometry: {
         type: 'LineString',
@@ -247,7 +248,7 @@ const geoJsonForRuns = (runs: Activity[]): FeatureCollection<LineString> => ({
 const geoJsonForMap = (): FeatureCollection<RPGeometry> => ({
   type: 'FeatureCollection',
   features: worldGeoJson.features.concat(chinaGeojson.features),
-})
+});
 
 const titleForType = (type: string): string => {
   switch (type) {
@@ -284,32 +285,30 @@ const titleForType = (type: string): string => {
     default:
       return RUN_TITLES.RUN_TITLE;
   }
-}
+};
 
 const typeForRun = (run: Activity): string => {
-  const type = run.type
+  const type = run.type;
   var distance = run.distance / 1000;
   switch (type) {
     case 'Run':
       if (distance >= 40) {
         return 'Full Marathon';
-      }
-      else if (distance > 20) {
+      } else if (distance > 20) {
         return 'Half Marathon';
       }
       return 'Run';
     case 'Trail Run':
       if (distance >= 40) {
         return 'Full Marathon';
-      }
-      else if (distance > 20) {
+      } else if (distance > 20) {
         return 'Half Marathon';
       }
       return 'Trail Run';
     default:
       return type;
   }
-}
+};
 
 const titleForRun = (run: Activity): string => {
   const type = run.type;
@@ -326,14 +325,13 @@ const titleForRun = (run: Activity): string => {
     }
   }
   // 3. use time+length if location or type is not available
-  if (type == 'Run' || type == 'Trail Run'){
-      const runDistance = run.distance / 1000;
-      if (runDistance >= 40) {
-        return RUN_TITLES.FULL_MARATHON_RUN_TITLE;
-      }
-      else if (runDistance > 20) {
-        return RUN_TITLES.HALF_MARATHON_RUN_TITLE;
-      }
+  if (type == 'Run' || type == 'Trail Run') {
+    const runDistance = run.distance / 1000;
+    if (runDistance >= 40) {
+      return RUN_TITLES.FULL_MARATHON_RUN_TITLE;
+    } else if (runDistance > 20) {
+      return RUN_TITLES.HALF_MARATHON_RUN_TITLE;
+    }
   }
   return titleForType(type);
 };
@@ -379,35 +377,73 @@ const getBoundsForGeoData = (
   geoData: FeatureCollection<LineString>
 ): IViewState => {
   const { features } = geoData;
-  let points: Coordinate[] = [];
-  // find first have data
-  for (const f of features) {
+  let allPoints: Coordinate[] = [];
+
+  // Collect all points from all features
+  features.forEach((f) => {
     if (f.geometry.coordinates.length) {
-      points = f.geometry.coordinates as Coordinate[];
-      break;
+      allPoints = allPoints.concat(f.geometry.coordinates as Coordinate[]);
     }
-  }
-  if (points.length === 0) {
+  });
+
+  if (allPoints.length === 0) {
     return { longitude: 20, latitude: 20, zoom: 3 };
   }
-  if (points.length === 2 && String(points[0]) === String(points[1])) {
-    return { longitude: points[0][0], latitude: points[0][1], zoom: 9 };
+
+  // Handle single point case
+  if (allPoints.length === 2 && String(allPoints[0]) === String(allPoints[1])) {
+    return { longitude: allPoints[0][0], latitude: allPoints[0][1], zoom: 14 };
   }
-  // Calculate corner values of bounds
-  const pointsLong = points.map((point) => point[0]) as number[];
-  const pointsLat = points.map((point) => point[1]) as number[];
+
+  // Calculate corner values of bounds for all points
+  const pointsLong = allPoints.map((point) => point[0]);
+  const pointsLat = allPoints.map((point) => point[1]);
   const cornersLongLat: [Coordinate, Coordinate] = [
     [Math.min(...pointsLong), Math.min(...pointsLat)],
     [Math.max(...pointsLong), Math.max(...pointsLat)],
   ];
+
+  // Calculate the span of longitude and latitude
+  const lonSpan = Math.abs(cornersLongLat[1][0] - cornersLongLat[0][0]);
+  const latSpan = Math.abs(cornersLongLat[1][1] - cornersLongLat[0][1]);
+
+  // Calculate diagonal distance to determine spread
+  const diagonalSpan = Math.sqrt(lonSpan * lonSpan + latSpan * latSpan);
+
+  // Adjust padding based on the number of features and point spread
+  let padding = 50;
+  if (features.length === 1) {
+    padding = diagonalSpan < 0.1 ? 300 : 150;
+  } else {
+    padding = diagonalSpan < 0.5 ? 100 : 50;
+  }
+
   const viewState = new WebMercatorViewport({
     width: 800,
     height: 600,
-  }).fitBounds(cornersLongLat, { padding: 200 });
+  }).fitBounds(cornersLongLat, { padding });
+
   let { longitude, latitude, zoom } = viewState;
-  if (features.length > 1) {
-    zoom = 11.5;
+
+  // Fine-tune zoom level based on the point spread and number of features
+  if (features.length === 1) {
+    if (diagonalSpan < 0.05) {
+      zoom = Math.max(zoom, 15); // Very concentrated points
+    } else if (diagonalSpan < 0.2) {
+      zoom = Math.max(zoom, 13); // Moderately spread points
+    } else {
+      zoom = Math.min(zoom, 11); // Widely spread points
+    }
+  } else {
+    if (diagonalSpan < 0.1) {
+      zoom = Math.max(zoom, 14); // Clustered multiple routes
+    } else if (diagonalSpan > 1) {
+      zoom = Math.min(zoom, 9); // Very spread multiple routes
+    } else {
+      zoom = Math.min(Math.max(zoom, 10), 13); // Keep zoom within reasonable bounds
+    }
   }
+
   return { longitude, latitude, zoom };
 };
 
@@ -428,15 +464,21 @@ const filterTitleRuns = (run: Activity, title: string) =>
   titleForRun(run) === title;
 
 const filterTypeRuns = (run: Activity, type: string) => {
-  switch (type){
+  switch (type) {
     case 'Full Marathon':
-      return (run.type === 'Run' || run.type === 'Trail Run') && run.distance > 40000
+      return (
+        (run.type === 'Run' || run.type === 'Trail Run') && run.distance > 40000
+      );
     case 'Half Marathon':
-      return (run.type === 'Run' || run.type === 'Trail Run') && run.distance < 40000 && run.distance > 20000
+      return (
+        (run.type === 'Run' || run.type === 'Trail Run') &&
+        run.distance < 40000 &&
+        run.distance > 20000
+      );
     default:
-      return run.type === type
+      return run.type === type;
   }
-}
+};
 
 const filterAndSortRuns = (
   activities: Activity[],
@@ -444,13 +486,13 @@ const filterAndSortRuns = (
   filterFunc: (_run: Activity, _bvalue: string) => boolean,
   sortFunc: (_a: Activity, _b: Activity) => number,
   item2: string | null,
-  filterFunc2: ((_run: Activity, _bvalue: string) => boolean) | null,
+  filterFunc2: ((_run: Activity, _bvalue: string) => boolean) | null
 ) => {
   let s = activities;
   if (item !== 'Total') {
     s = activities.filter((run) => filterFunc(run, item));
   }
-  if(filterFunc2 != null && item2 != null){
+  if (filterFunc2 != null && item2 != null) {
     s = s.filter((run) => filterFunc2(run, item2));
   }
   return s.sort(sortFunc);
