@@ -396,35 +396,73 @@ const getBoundsForGeoData = (
   geoData: FeatureCollection<LineString>
 ): IViewState => {
   const { features } = geoData;
-  let points: Coordinate[] = [];
-  // find first have data
-  for (const f of features) {
+  let allPoints: Coordinate[] = [];
+
+  // Collect all points from all features
+  features.forEach((f) => {
     if (f.geometry.coordinates.length) {
-      points = f.geometry.coordinates as Coordinate[];
-      break;
+      allPoints = allPoints.concat(f.geometry.coordinates as Coordinate[]);
     }
-  }
-  if (points.length === 0) {
+  });
+
+  if (allPoints.length === 0) {
     return { longitude: 20, latitude: 20, zoom: 3 };
   }
-  if (points.length === 2 && String(points[0]) === String(points[1])) {
-    return { longitude: points[0][0], latitude: points[0][1], zoom: 9 };
+
+  // Handle single point case
+  if (allPoints.length === 2 && String(allPoints[0]) === String(allPoints[1])) {
+    return { longitude: allPoints[0][0], latitude: allPoints[0][1], zoom: 14 };
   }
-  // Calculate corner values of bounds
-  const pointsLong = points.map((point) => point[0]) as number[];
-  const pointsLat = points.map((point) => point[1]) as number[];
+
+  // Calculate corner values of bounds for all points
+  const pointsLong = allPoints.map((point) => point[0]);
+  const pointsLat = allPoints.map((point) => point[1]);
   const cornersLongLat: [Coordinate, Coordinate] = [
     [Math.min(...pointsLong), Math.min(...pointsLat)],
     [Math.max(...pointsLong), Math.max(...pointsLat)],
   ];
+
+  // Calculate the span of longitude and latitude
+  const lonSpan = Math.abs(cornersLongLat[1][0] - cornersLongLat[0][0]);
+  const latSpan = Math.abs(cornersLongLat[1][1] - cornersLongLat[0][1]);
+
+  // Calculate diagonal distance to determine spread
+  const diagonalSpan = Math.sqrt(lonSpan * lonSpan + latSpan * latSpan);
+
+  // Adjust padding based on the number of features and point spread
+  let padding = 50;
+  if (features.length === 1) {
+    padding = diagonalSpan < 0.1 ? 300 : 150;
+  } else {
+    padding = diagonalSpan < 0.5 ? 100 : 50;
+  }
+
   const viewState = new WebMercatorViewport({
     width: 800,
     height: 600,
-  }).fitBounds(cornersLongLat, { padding: 200 });
+  }).fitBounds(cornersLongLat, { padding });
+
   let { longitude, latitude, zoom } = viewState;
-  if (features.length > 1) {
-    zoom = 11.5;
+
+  // Fine-tune zoom level based on the point spread and number of features
+  if (features.length === 1) {
+    if (diagonalSpan < 0.05) {
+      zoom = Math.max(zoom, 15); // Very concentrated points
+    } else if (diagonalSpan < 0.2) {
+      zoom = Math.max(zoom, 13); // Moderately spread points
+    } else {
+      zoom = Math.min(zoom, 11); // Widely spread points
+    }
+  } else {
+    if (diagonalSpan < 0.1) {
+      zoom = Math.max(zoom, 14); // Clustered multiple routes
+    } else if (diagonalSpan > 1) {
+      zoom = Math.min(zoom, 9); // Very spread multiple routes
+    } else {
+      zoom = Math.min(Math.max(zoom, 10), 13); // Keep zoom within reasonable bounds
+    }
   }
+
   return { longitude, latitude, zoom };
 };
 
